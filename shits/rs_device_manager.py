@@ -160,6 +160,13 @@ class DeviceManager(metaclass=SingleInstanceMetaClass):
             Device(pipeline, pipeline_profile, product_line))
 
     def enable_device_according_serial(self, serial):
+        """Enable device according serial number
+
+        :param serial: Serial number of the device
+        :type serial: str
+        :return: Whether device is enabled successfully
+        :rtype: bool
+        """
         device_info = self.get_device_info_from_serial(serial)
         if device_info is None:
             return False
