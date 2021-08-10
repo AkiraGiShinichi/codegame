@@ -1,6 +1,7 @@
 import numpy as np
 import pyrealsense2 as rs
 import cv2
+from enum import Enum
 
 
 # ----------------------------- Helper functions ----------------------------- #
@@ -110,6 +111,7 @@ class SingleInstanceMetaClass(type):
 # ---------------------------------------------------------------------------- #
 
 
+# ------------------------------- Main content ------------------------------- #
 class RealsenseCapture(metaclass=SingleInstanceMetaClass):
     camera_is_open = False
 
@@ -167,6 +169,15 @@ class RealsenseCapture(metaclass=SingleInstanceMetaClass):
         except:
             print(f'\n    RealsenseCapture - initialized not success')
 
+    def warm_up(self, dispose_frames_for_stablisation):
+        """Dispose some frames for stablisation
+
+        :param dispose_frames_for_stablisation: Number of disposing frames
+        :type dispose_frames_for_stablisation: int
+        """
+        for _ in range(dispose_frames_for_stablisation):
+            frames = self.read()
+
     def read(self, return_depth=False, depth_filter=None):
         """Read BGR image from Realsense camera
 
@@ -200,14 +211,18 @@ class RealsenseCapture(metaclass=SingleInstanceMetaClass):
 
     def release(self):
         print(f'\n    RealsenseCapture - release')
-        try:
-            self.pipeline.stop()
-        except:
-            print(
-                f'\n    RealsenseCapture - release: error. Camera is not initialized yet.')
+        self._config.disable_all_streams()
+# ---------------------------------------------------------------------------- #
+
+
+# ---------------------------------- Testing --------------------------------- #
+class Observation(Enum):
+    COLOR = 1
+    DEPTH = 2
 
 
 if __name__ == '__main__':
+    # Initialize capture
     realsense_capture = RealsenseCapture(
         depth_size=(640, 480),
         color_size=(960, 540),
@@ -215,19 +230,30 @@ if __name__ == '__main__':
     print(realsense_capture)
     # realsense_capture = RealsenseCapture(depth_size=(640, 480), color_size=(640, 480), fps=30) # D435i
     realsense_capture.enable_device()
-    realsense_capture2 = RealsenseCapture(
-        depth_size=(640, 480),
-        color_size=(960, 540),
-        fps=30)  # L515
-    print(realsense_capture2)
+
+    # Observe image
+    observe = Observation.COLOR
     while 1:
         if realsense_capture.isOpened():
             status, images = realsense_capture.read(
-                return_depth=True, depth_filter=post_process_depth_frame)
+                return_depth=True)  # , depth_filter=post_process_depth_frame
             if status:
                 color_image, depth_image = images
-                cv2.imshow('Test', color_image)
-                cv2.waitKey(100)
+                if observe == Observation.COLOR:
+                    cv2.imshow('Test', color_image)
+                else:
+                    cv2.imshow('Test', depth_image)
+                key = cv2.waitKey(100)
+                if key & 0xFF == ord('q'):
+                    break
+                elif key & 0xFF == ord('1'):
+                    observe = Observation.COLOR
+                elif key & 0xFF == ord('2'):
+                    observe = Observation.DEPTH
         else:
             break
+
+    # Release capture
+    realsense_capture.release()
     print('Byebye!')
+# ---------------------------------------------------------------------------- #
