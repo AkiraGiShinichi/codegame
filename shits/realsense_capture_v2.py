@@ -112,29 +112,40 @@ class SingleInstanceMetaClass(type):
 
 
 # ------------------------------- Main content ------------------------------- #
+class DataType(Enum):
+    FRAMES = 1
+    COLOR_FRAME = 2
+    DEPTH_FRAME = 3
+    COLOR_IMAGE = 4
+    DEPTH_IMAGE = 5
+    IMAGES = 6
+
+
 class RealsenseCapture(metaclass=SingleInstanceMetaClass):
-    camera_is_open = False
 
     def __init__(
             self, depth_size=(640, 480),
             color_size=(640, 480),
             fps=30) -> None:
-        self.depth_size = depth_size
-        self.color_size = color_size
-        self.fps = fps
+        self._depth_size = depth_size
+        self._color_size = color_size
+        self._fps = fps
 
         self._context = rs.context()
         _available_devices = enumerate_connected_devices(self._context)
         self._device_serial, self._product_line = _available_devices[0]
         self._enabled_device = None
 
-        color_width, color_height = self.color_size
-        depth_width, depth_height = self.depth_size
+        color_width, color_height = self._color_size
+        depth_width, depth_height = self._depth_size
         self._config = rs.config()
         self._config.enable_stream(
             rs.stream.color, color_width, color_height, rs.format.rgb8, fps)
         self._config.enable_stream(
             rs.stream.depth, depth_width, depth_height, rs.format.z16, fps)
+
+        self._camera_is_open = False
+        self._frames = None
 
     def enable_device(self, enable_ir_emitter=False):
         """Enable an Intel Realsense device
@@ -164,7 +175,7 @@ class RealsenseCapture(metaclass=SingleInstanceMetaClass):
             self._enabled_device = Device(
                 pipeline, pipeline_profile, align, self._product_line)
 
-            self.camera_is_open = True
+            self._camera_is_open = True
             print(f'\n    RealsenseCapture - initialized')
         except:
             print(f'\n    RealsenseCapture - initialized not success')
@@ -188,30 +199,65 @@ class RealsenseCapture(metaclass=SingleInstanceMetaClass):
         try:
             frames = self._enabled_device.pipeline.wait_for_frames()
             # Align the depth frame to color frame
-            frames = self._enabled_device.align.process(frames)
+            self._frames = self._enabled_device.align.process(frames)
 
-            color_frame = frames.get_color_frame()
+            color_frame = self._frames.get_color_frame()
+            depth_frame = self._frames.get_depth_frame()
+            if depth_filter is not None:
+                depth_frame = depth_filter(depth_frame)
+
             color_image = np.asarray(color_frame.get_data())
+            depth_image = np.asarray(depth_frame.get_data())
 
             if return_depth:
-                depth_frame = frames.get_depth_frame()
-                if depth_filter is not None:
-                    depth_frame = depth_filter(depth_frame)
-                depth_image = np.asarray(depth_frame.get_data())
                 return True, [color_image[:, :, ::-1], depth_image]
             else:
                 return True, color_image[:, :, ::-1]
         except:
-            self.camera_is_open = False
+            self._camera_is_open = False
             print(f'\n    RealsenseCapture - read: error')
             return False, None
 
     def isOpened(self):
-        return self.camera_is_open
+        return self._camera_is_open
 
     def release(self):
         print(f'\n    RealsenseCapture - release')
         self._config.disable_all_streams()
+
+    def get_intrinsics(self, type: DataType = DataType.COLOR_FRAME):
+        assert type == DataType.COLOR_FRAME or type == DataType.DEPTH_FRAME
+
+        if type == DataType.COLOR_FRAME:
+            frame = self.get_data_according_type(DataType.COLOR_FRAME)
+        elif type == DataType.DEPTH_FRAME:
+            frame = self.get_data_according_type(DataType.DEPTH_FRAME)
+
+        intrinsics = frame.get_profile().as_video_stream_profile().get_intrinsics()
+        return intrinsics
+
+    def get_depth_to_color_extrinsics(self):
+        color_frame = self.get_data_according_type(DataType.COLOR_FRAME)
+        depth_frame = self.get_data_according_type(DataType.DEPTH_FRAME)
+        extrinsics = depth_frame.get_profile().as_video_stream_profile(
+        ).get_extrinsics_to(color_frame.get_profile())
+        return extrinsics
+
+    def get_data_according_type(self, type: DataType = DataType.FRAMES):
+        if type == DataType.FRAMES:
+            return self._frames
+        elif type == DataType.COLOR_FRAME:
+            return self._frames.get_color_frame()
+        elif type == DataType.DEPTH_FRAME:
+            return self._frames.get_depth_frame()
+        elif type == DataType.COLOR_IMAGE:
+            return np.asarray(self._frames.get_color_frame().get_data())
+        elif type == DataType.DEPTH_IMAGE:
+            return np.asarray(self._frames.get_depth_frame().get_data())
+        elif type == DataType.IMAGES:
+            color_image = np.asarray(self._frames.get_color_frame().get_data())
+            depth_image = np.asarray(self._frames.get_color_frame().get_data())
+            return (color_image, depth_image)
 # ---------------------------------------------------------------------------- #
 
 
