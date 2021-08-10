@@ -96,6 +96,107 @@ class SingleInstanceMetaClass(type):
                 SingleInstanceMetaClass, cls).__call__(
                 *args, **kwargs)
             return cls.__instance
+
+
+def get_depth_at_pixel(depth_frame, pixel_x, pixel_y):
+    """Get the depth value at the desired image point
+
+    :param depth_frame: The depth frame containing the depth information of the image coordinate
+    :type depth_frame: rs.frame()
+    :param pixel_x: The x value of the image coordinate
+    :type pixel_x: double
+    :param pixel_y: The y value of the image coordinate
+    :type pixel_y: double
+    :return: depth value at the desired pixel
+    :rtype: int
+    """
+    return depth_frame.as_depth_frame().get_distance(round(pixel_x), round(pixel_y))
+
+
+def convert_depth_pixel_to_metric_coordinate(depth, pixel_x, pixel_y,
+                                             camera_intrinsics):
+    """Convert the depth and image point information to metric coordinates
+
+    :param depth: The depth value of the image point
+    :type depth: double
+    :param pixel_x: The x value of the image coordinate
+    :type pixel_x: double
+    :param pixel_y: The y value of the image coordinate
+    :type pixel_y: double
+    :param camera_intrinsics: The intrinsic values of the imager in whose coordinate system the depth_frame is computed
+    :type camera_intrinsics: rs.intrinsics
+    :return: (X, Y, Z)
+    :X: The x value in meters
+    :Y: The y value in meters
+    :Z: The z value in meters
+    :rtype: tuple(double, double, double)
+    """
+    X = (pixel_x - camera_intrinsics.ppx) / camera_intrinsics.fx * depth
+    Y = (pixel_y - camera_intrinsics.ppy) / camera_intrinsics.fy * depth
+    return X, Y, depth
+
+
+def convert_depth_frame_to_pointcloud(depth_image, camera_intrinsics):
+    """Convert depth frame to a 3D point cloud
+
+    :param depth_image: Depth image
+    :type depth_image: array
+    :param camera_intrinsics: Camera intrinsics
+    :type camera_intrinsics: rs.intrinsics
+    :return: Tuple of array (x, y z)
+    :x: The x values of the pointcloud in meters
+    :y: The y values of the pointcloud in meters
+    :z: The z values of the pointcloud in meters
+    :rtype: tuple(array, array, array)
+    """
+    height, width = depth_image.shape
+
+    nx = np.linspace(0, width - 1, width)
+    ny = np.linspace(0, height - 1, height)
+    u, v = np.meshgrid(nx, ny)
+    x = (u.flatten() - camera_intrinsics.ppx) / camera_intrinsics.fx
+    y = (v.flatten() - camera_intrinsics.ppy) / camera_intrinsics.fy
+
+    z = depth_image.flatten() / 1000
+    x = np.multiply(x, z)
+    y = np.multiply(x, z)
+
+    return x, y, z
+
+
+def convert_pointcloud_to_depth(pointcloud, camera_intrinsics):
+    """Convert the world coordinate to a 2D image coordinate
+
+    :param pointcloud: numpy array with shape 3xN
+    :type pointcloud: numpy array with shape 3xN
+    :param camera_intrinsics: [description]
+    :type camera_intrinsics: [type]
+    :return: (x, y)
+    :x: The x coordinates in image
+    :y: The y coordiantes in image
+    :rtype: tuple(array, array)
+    """
+    assert (pointcloud.shape[0] == 3)
+
+    x_ = pointcloud[0, :]
+    y_ = pointcloud[1, :]
+    z_ = pointcloud[2, :]
+
+    m = x_[np.nonzero(z_)] / z_[np.nonzero(z_)]
+    n = y_[np.nonzero(z_)] / z_[np.nonzero(z_)]
+
+    x = m * camera_intrinsics.fx + camera_intrinsics.ppx
+    y = n * camera_intrinsics.fy + camera_intrinsics.ppy
+
+    return x, y
+
+
+def get_boundary_corners_2D(points):
+    pass
+
+
+def get_clipped_pointcloud(pointcloud, boundary):
+    pass
 # ---------------------------------------------------------------------------- #
 
 
