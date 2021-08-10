@@ -122,11 +122,19 @@ class DataType(Enum):
 
 
 class RealsenseCapture(metaclass=SingleInstanceMetaClass):
-
     def __init__(
             self, depth_size=(640, 480),
             color_size=(640, 480),
             fps=30) -> None:
+        """Class to manage the Intel Realsense capture
+
+        :param depth_size: Size of depth frame, defaults to (640, 480)
+        :type depth_size: tuple, optional
+        :param color_size: Size of color frame, defaults to (640, 480)
+        :type color_size: tuple, optional
+        :param fps: FPS of capture, defaults to 30
+        :type fps: int, optional
+        """
         self._depth_size = depth_size
         self._color_size = color_size
         self._fps = fps
@@ -187,76 +195,130 @@ class RealsenseCapture(metaclass=SingleInstanceMetaClass):
         :type dispose_frames_for_stablisation: int
         """
         for _ in range(dispose_frames_for_stablisation):
-            frames = self.read()
+            _ = self.read()
 
     def read(self, return_depth=False, depth_filter=None):
-        """Read BGR image from Realsense camera
+        """Read data from camera
 
-        Returns:
-            [bool]: able to capture frame or not
-            [ndarray]: frame
+        :param return_depth: Whether return depth image or not, defaults to False
+        :type return_depth: bool, optional
+        :param depth_filter: [description], defaults to None
+        :type depth_filter: [type], optional
+        :return: Whether having data, and data
+        :rtype: tuple(bool, array or list of array)
         """
         try:
             frames = self._enabled_device.pipeline.wait_for_frames()
             # Align the depth frame to color frame
             self._frames = self._enabled_device.align.process(frames)
 
-            color_frame = self._frames.get_color_frame()
-            depth_frame = self._frames.get_depth_frame()
-            if depth_filter is not None:
-                depth_frame = depth_filter(depth_frame)
-
-            color_image = np.asarray(color_frame.get_data())
-            depth_image = np.asarray(depth_frame.get_data())
-
-            if return_depth:
-                return True, [color_image[:, :, ::-1], depth_image]
-            else:
-                return True, color_image[:, :, ::-1]
+            if return_depth:  # Return RGB image and Depth image
+                return True, self.get_data_according_type(
+                    DataType.IMAGES, depth_filter)
+            else:  # Return RGB image only
+                return True, self.get_data_according_type(DataType.COLOR_IMAGE)
         except:
             self._camera_is_open = False
             print(f'\n    RealsenseCapture - read: error')
             return False, None
 
     def isOpened(self):
+        """Check whether the camera is open(ready to use)
+
+        :return: Is open or not
+        :rtype: bool
+        """
         return self._camera_is_open
 
     def release(self):
+        """Release/Disable cameras
+        """
         print(f'\n    RealsenseCapture - release')
         self._config.disable_all_streams()
 
-    def get_intrinsics(self, type: DataType = DataType.COLOR_FRAME):
-        assert type == DataType.COLOR_FRAME or type == DataType.DEPTH_FRAME
+    def get_intrinsics(self, frame_type: DataType = DataType.COLOR_FRAME):
+        """Get intrinsics of a frame(depth ? color)
+        :In this case, after alignment, intrinsics of depth and color frames
+        :are the same
 
-        if type == DataType.COLOR_FRAME:
+        :param frame_type: Type of frame, defaults to DataType.COLOR_FRAME
+        :type frame_type: DataType, optional
+        :return: intrinsics
+        :rtype: rs.intrinsics
+        """
+        assert frame_type == DataType.COLOR_FRAME or frame_type == DataType.DEPTH_FRAME
+
+        if frame_type == DataType.COLOR_FRAME:
             frame = self.get_data_according_type(DataType.COLOR_FRAME)
-        elif type == DataType.DEPTH_FRAME:
+        elif frame_type == DataType.DEPTH_FRAME:
             frame = self.get_data_according_type(DataType.DEPTH_FRAME)
+
+        if frame is None:
+            return None
 
         intrinsics = frame.get_profile().as_video_stream_profile().get_intrinsics()
         return intrinsics
 
     def get_depth_to_color_extrinsics(self):
+        """Get extrinsics from depth frame to color frame
+
+        :return: Extrinsics
+        :rtype: rs.extrinsics
+        """
         color_frame = self.get_data_according_type(DataType.COLOR_FRAME)
         depth_frame = self.get_data_according_type(DataType.DEPTH_FRAME)
+
+        if color_frame is None or depth_frame is None:
+            return None
+
         extrinsics = depth_frame.get_profile().as_video_stream_profile(
         ).get_extrinsics_to(color_frame.get_profile())
         return extrinsics
 
-    def get_data_according_type(self, type: DataType = DataType.FRAMES):
-        if type == DataType.FRAMES:
+    def get_depth_frame(self, depth_filter=None):
+        """Get depth frame
+
+        :param depth_filter: Function to filter depth frame, defaults to None
+        :type depth_filter: object, optional
+        :return: Depth frame after filtered
+        :rtype: rs.depth_frame
+        """
+        if self._frames is None:
+            return None
+
+        depth_frame = self._frames.get_depth_frame()
+        if depth_filter is not None:
+            depth_frame = depth_filter(depth_frame)
+        return depth_frame
+
+    def get_data_according_type(self, data_type: DataType = DataType.FRAMES,
+                                depth_filter=None):
+        """Get data according to type
+
+        :param data_type: Expected type of data, defaults to DataType.FRAMES
+        :type data_type: DataType, optional
+        :param depth_filter: Function to filter depth frame, defaults to None
+        :type depth_filter: object, optional
+        :return: Data
+        :rtype: frame or array
+        """
+        if self._frames is None:
+            return None
+
+        if data_type == DataType.FRAMES:
             return self._frames
-        elif type == DataType.COLOR_FRAME:
+        elif data_type == DataType.COLOR_FRAME:
             return self._frames.get_color_frame()
-        elif type == DataType.DEPTH_FRAME:
-            return self._frames.get_depth_frame()
-        elif type == DataType.COLOR_IMAGE:
+        elif data_type == DataType.DEPTH_FRAME:
+            return self.get_depth_frame(depth_filter)
+        elif data_type == DataType.COLOR_IMAGE:
             return np.asarray(self._frames.get_color_frame().get_data())
-        elif type == DataType.DEPTH_IMAGE:
-            return np.asarray(self._frames.get_depth_frame().get_data())
-        elif type == DataType.IMAGES:
+        elif data_type == DataType.DEPTH_IMAGE:
+            return np.asarray(self.get_depth_frame(depth_filter).get_data())
+        elif data_type == DataType.IMAGES:
             color_image = np.asarray(self._frames.get_color_frame().get_data())
-            depth_image = np.asarray(self._frames.get_color_frame().get_data())
+            depth_image = np.asarray(self.get_depth_frame(depth_filter)
+                                     .get_data())
             return (color_image, depth_image)
 # ---------------------------------------------------------------------------- #
 
@@ -281,12 +343,15 @@ if __name__ == '__main__':
     observe = Observation.COLOR
     while 1:
         if realsense_capture.isOpened():
+            # Capture image
             status, images = realsense_capture.read(
                 return_depth=True)  # , depth_filter=post_process_depth_frame
+            # Display image
             if status:
                 color_image, depth_image = images
                 if observe == Observation.COLOR:
-                    cv2.imshow('Test', color_image)
+                    cv2.imshow('Test', cv2.cvtColor(
+                        color_image, cv2.COLOR_RGB2BGR))
                 else:
                     cv2.imshow('Test', depth_image)
                 key = cv2.waitKey(100)
@@ -298,6 +363,10 @@ if __name__ == '__main__':
                     observe = Observation.DEPTH
         else:
             break
+
+    # Other tests
+    intrinsics = realsense_capture.get_intrinsics()
+    extrinsics = realsense_capture.get_depth_to_color_extrinsics()
 
     # Release capture
     realsense_capture.release()
