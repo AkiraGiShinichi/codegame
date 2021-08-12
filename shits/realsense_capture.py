@@ -136,7 +136,8 @@ def convert_depth_pixel_to_metric_coordinate(depth, pixel_x, pixel_y,
     return X, Y, depth
 
 
-def convert_depth_frame_to_pointcloud(depth_image, camera_intrinsics):
+def convert_depth_frame_to_pointcloud(depth_image, camera_intrinsics,
+                                      depth_scale=0.001):
     """Convert depth frame to a 3D point cloud
 
     :param depth_image: Depth image
@@ -154,12 +155,13 @@ def convert_depth_frame_to_pointcloud(depth_image, camera_intrinsics):
     nx = np.linspace(0, width - 1, width)
     ny = np.linspace(0, height - 1, height)
     u, v = np.meshgrid(nx, ny)
+
     x = (u.flatten() - camera_intrinsics.ppx) / camera_intrinsics.fx
     y = (v.flatten() - camera_intrinsics.ppy) / camera_intrinsics.fy
 
-    z = depth_image.flatten() / 1000
+    z = depth_image.flatten() * depth_scale
     x = np.multiply(x, z)
-    y = np.multiply(x, z)
+    y = np.multiply(y, z)
 
     return x, y, z
 
@@ -348,6 +350,12 @@ class RealsenseCapture(metaclass=SingleInstanceMetaClass):
         intrinsics = frame.get_profile().as_video_stream_profile().get_intrinsics()
         return intrinsics
 
+    def get_depth_scale(self) -> float:
+        # Getting the depth sensor's depth scale (see rs-align example for explanation)
+        depth_sensor = self._enabled_device.pipeline_profile.get_device().first_depth_sensor()
+        depth_scale = depth_sensor.get_depth_scale()
+        return depth_scale
+
     def get_depth_to_color_extrinsics(self):
         """Get extrinsics from depth frame to color frame
 
@@ -456,6 +464,29 @@ if __name__ == '__main__':
     # Other tests
     intrinsics = realsense_capture.get_intrinsics()
     extrinsics = realsense_capture.get_depth_to_color_extrinsics()
+    depth_scale = realsense_capture.get_depth_scale()
+
+    # depth_image = realsense_capture.get_data_according_type(
+    #     DataType.DEPTH_IMAGE)
+    x, y, z = convert_depth_frame_to_pointcloud(
+        depth_image, intrinsics)
+    points = np.column_stack((x, y, z))
+    r, g, b = color_image[:, :, 0].flatten(
+    ), color_image[:, :, 1].flatten(), color_image[:, :, 2].flatten()
+    colors = np.column_stack((r, g, b)) / 255.
+
+    r = r[np.nonzero(z)]
+    g = g[np.nonzero(z)]
+    b = b[np.nonzero(z)]
+    x = x[np.nonzero(z)]
+    y = y[np.nonzero(z)]
+    z = z[np.nonzero(z)]
+
+    import open3d as o3d
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points[:, :3])
+    pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
+    o3d.visualization.draw_geometries([pcd])
 
     # Release capture
     realsense_capture.release()
