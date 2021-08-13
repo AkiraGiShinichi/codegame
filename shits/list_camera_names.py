@@ -1,6 +1,6 @@
-
 from pygrabber.dshow_graph import FilterGraph
 from timing_operation import measure
+
 
 @measure
 def list_available_cameras():
@@ -14,4 +14,6 @@ def list_available_cameras():
     return device_names
 
 
-print(list_available_cameras())
+if __name__ == '__main__':
+    print(list_available_cameras())
+    exit(0)
