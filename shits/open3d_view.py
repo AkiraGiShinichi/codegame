@@ -6,7 +6,7 @@ import os
 import time
 import threading
 
-from realsense_capture import RealsenseCapture, convert_depth_frame_to_pointcloud, post_process_depth_frame
+from realsense_capture import RealsenseCapture, convert_depth_frame_to_points, post_process_depth_frame
 
 
 def rescale_greyscale(img):
@@ -110,7 +110,7 @@ class VideoWindow:
                 if status:
                     color_image, depth_image = images
 
-                    x, y, z = convert_depth_frame_to_pointcloud(
+                    x, y, z = convert_depth_frame_to_points(
                         depth_image, self.capture.get_intrinsics())
                     r = color_image[:, :, 0].flatten()
                     g = color_image[:, :, 1].flatten()

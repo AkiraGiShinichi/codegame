@@ -1,6 +1,12 @@
-autopep8
-pylint
+autopep8 # check ?
+pylint # check ?
+pyscaffold # template
+pyscaffoldext-dsproject # for data-science
+tox # necess?
+pre-commit # check & format codes
+sphinx # docs
 PySide6
 pyrealsense2
 opencv-python==4.5.2.52
 open3d
+pandas

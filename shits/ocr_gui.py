@@ -11,6 +11,7 @@ import socket
 import cv2
 import numpy as np
 import torch
+import random             
 
 from PySide6.QtWidgets import (
     QApplication, QLineEdit, QMainWindow, QPushButton, QLabel,

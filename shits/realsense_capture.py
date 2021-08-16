@@ -2,9 +2,11 @@ import numpy as np
 import pyrealsense2 as rs
 import cv2
 from enum import Enum
-
+from typing import List, Tuple
 
 # ----------------------------- Helper functions ----------------------------- #
+
+
 class Device:
     def __init__(self, pipeline, pipeline_profile, align, product_line):
         self.pipeline = pipeline
@@ -13,13 +15,14 @@ class Device:
         self.product_line = product_line
 
 
-def enumerate_connected_devices(context):
+def enumerate_connected_devices(context: rs.context) -> List[Tuple[str, str]]:
     """Enumerate the connected Intel Realsense devices
 
-    :param context: The context created for using the realsense library
-    :type context: rs.context()
-    :return: List of (serial-number, product-line) tuples of devices which are connected to the PC
-    :rtype: list
+    Args:
+        context (rs.context): The context created for using the realsense library
+
+    Returns:
+        List[Tuple[str, str]]: List of (serial-number, product-line) of devices which are connected to the PC
     """
     connect_device = []
 
@@ -32,6 +35,7 @@ def enumerate_connected_devices(context):
     return connect_device
 
 
+# TODO: What are good values to filter?
 def post_process_depth_frame(
         depth_frame, decimation_magnitude=1.0, spatial_magnitude=2.0,
         spatial_smooth_alpha=0.5, spatial_smooth_delta=20,
@@ -98,57 +102,58 @@ class SingleInstanceMetaClass(type):
             return cls.__instance
 
 
-def get_depth_at_pixel(depth_frame, pixel_x, pixel_y):
+def get_depth_at_pixel(
+        depth_frame: rs.frame, pixel_x: int, pixel_y: int) -> int:
     """Get the depth value at the desired image point
 
-    :param depth_frame: The depth frame containing the depth information of the image coordinate
-    :type depth_frame: rs.frame()
-    :param pixel_x: The x value of the image coordinate
-    :type pixel_x: double
-    :param pixel_y: The y value of the image coordinate
-    :type pixel_y: double
-    :return: depth value at the desired pixel
-    :rtype: int
+    Args:
+        depth_frame (rs.frame): The depth frame containing the depth information of the image coordinate
+        pixel_x (int): The x value of the image coordinate
+        pixel_y (int): The y value of the image coordinate
+
+    Returns:
+        int: Depth value at the desired pixel
     """
     return depth_frame.as_depth_frame().get_distance(round(pixel_x), round(pixel_y))
 
 
-def convert_depth_pixel_to_metric_coordinate(depth, pixel_x, pixel_y,
-                                             camera_intrinsics):
+def convert_depth_pixel_to_metric_coordinate(depth: float, pixel_x: float, pixel_y: float,
+                                             camera_intrinsics: rs.intrinsics) -> Tuple[float, float, float]:
     """Convert the depth and image point information to metric coordinates
 
-    :param depth: The depth value of the image point
-    :type depth: double
-    :param pixel_x: The x value of the image coordinate
-    :type pixel_x: double
-    :param pixel_y: The y value of the image coordinate
-    :type pixel_y: double
-    :param camera_intrinsics: The intrinsic values of the imager in whose coordinate system the depth_frame is computed
-    :type camera_intrinsics: rs.intrinsics
-    :return: (X, Y, Z)
-    :X: The x value in meters
-    :Y: The y value in meters
-    :Z: The z value in meters
-    :rtype: tuple(double, double, double)
+    Args:
+        depth ([float]): The depth value of the image point
+        pixel_x (float): The x value of the image coordinate
+        pixel_y (float): The y value of the image coordinate
+        camera_intrinsics (rs.intrinsics): The intrinsic values of the imager in whose coordinate system the depth_frame is computed
+
+    Returns:
+        (X, Y, Z) (Tuple[float, float, float]): Coordinate of pixel
+        X (float): The x coordinate value in meters
+        Y (float): The y coordinate value in meters
+        Z (float): The z coordinate value in meters
     """
     X = (pixel_x - camera_intrinsics.ppx) / camera_intrinsics.fx * depth
     Y = (pixel_y - camera_intrinsics.ppy) / camera_intrinsics.fy * depth
-    return X, Y, depth
+    Z = depth
+    return X, Y, Z
 
 
-def convert_depth_frame_to_pointcloud(depth_image, camera_intrinsics,
-                                      depth_scale=0.001):
+def convert_depth_frame_to_points(depth_image: np.ndarray,
+                                  camera_intrinsics: rs.intrinsics,
+                                  depth_scale: float = 0.001) -> Tuple[np.ndarray]:
     """Convert depth frame to a 3D point cloud
 
-    :param depth_image: Depth image
-    :type depth_image: array
-    :param camera_intrinsics: Camera intrinsics
-    :type camera_intrinsics: rs.intrinsics
-    :return: Tuple of array (x, y z)
-    :x: The x values of the pointcloud in meters
-    :y: The y values of the pointcloud in meters
-    :z: The z values of the pointcloud in meters
-    :rtype: tuple(array, array, array)
+    Args:
+        depth_image (np.ndarray): Depth image
+        camera_intrinsics (rs.intrinsics): Camera intrinsics
+        depth_scale (float, optional): Scale factor of depth. Defaults to 0.001.
+
+    Returns:
+        (x, y, z) (Tuple[np.ndarray]): 3 list of x coordinates, y coordinates and z coordinates
+        x (np.ndarray): x coordinates in meters
+        y (np.ndarray): y coordinates in meters
+        z (np.ndarray): z coordinates in meters
     """
     height, width = depth_image.shape
 
@@ -213,26 +218,34 @@ class DataType(Enum):
 
 
 class RealsenseCapture(metaclass=SingleInstanceMetaClass):
-    def __init__(
-            self, depth_size=(640, 480),
-            color_size=(640, 480),
-            fps=30) -> None:
-        """Class to manage the Intel Realsense capture
+    """Class to manage the Intel Realsense capture.
 
-        :param depth_size: Size of depth frame, defaults to (640, 480)
-        :type depth_size: tuple, optional
-        :param color_size: Size of color frame, defaults to (640, 480)
-        :type color_size: tuple, optional
-        :param fps: FPS of capture, defaults to 30
-        :type fps: int, optional
-        """
+    Args:
+        id (int, optional): Id of connected Realsense device. Defaults to 0.
+        color_size (Tuple, optional): Size of color frame. Defaults to (640, 480).
+        depth_size (Tuple, optional): Size of depth frame. Defaults to (640, 480).
+        fps (int, optional): FPS of capture. Defaults to 30.
+        serial (str, optional): Serial-number of desired device. Defaults to None.
+    """
+
+    def __init__(
+            self, id: int = 0,
+            color_size: Tuple[int, int] = (640, 480),
+            depth_size: Tuple[int, int] = (640, 480),
+            fps: int = 30, serial: str = None) -> None:  #
         self._depth_size = depth_size
         self._color_size = color_size
         self._fps = fps
 
         self._context = rs.context()
-        _available_devices = enumerate_connected_devices(self._context)
-        self._device_serial, self._product_line = _available_devices[0]
+        self._available_devices = enumerate_connected_devices(self._context)
+        self._device_id = id
+        if serial is not None:
+            self._serial = serial
+            self._device_id = self.get_device_id_from_serial(self._serial)
+        self._device_serial, self._product_line = self.get_device_info_from_id(
+            self._device_id)
+
         self._enabled_device = None
 
         color_width, color_height = self._color_size
@@ -246,13 +259,16 @@ class RealsenseCapture(metaclass=SingleInstanceMetaClass):
         self._camera_is_open = False
         self._frames = None
 
-    def enable_device(self, enable_ir_emitter=False):
+    def enable_device(self, enable_ir_emitter: bool = False):
         """Enable an Intel Realsense device
+        Or providing exact device-serial, or providing device-id for convenience
 
-        :param device_info: Serial number and product line of the Realsense device
-        :type device_info: tuple(str, str)
-        :param enable_ir_emitter: Enable/Disable the IR-Emitter of the device
-        :type enable_ir_emitter: bool
+        Args:
+            enable_ir_emitter (bool, optional): Enable/Disable the IR-Emitter of the device. Defaults to False.
+
+        Examples:
+            realsense_capture.enable_device(0) # 1st method
+            realsense_capture.enable_device(device_serial='f12345') # 2nd method
         """
         try:
             pipeline = rs.pipeline()
@@ -279,11 +295,11 @@ class RealsenseCapture(metaclass=SingleInstanceMetaClass):
         except:
             print(f'\n    RealsenseCapture - initialized not success')
 
-    def warm_up(self, dispose_frames_for_stablisation):
-        """Dispose some frames for stablisation
+    def warm_up(self, dispose_frames_for_stablisation: int = 30) -> None:
+        """Dispose some frames for camera-stablisation
 
-        :param dispose_frames_for_stablisation: Number of disposing frames
-        :type dispose_frames_for_stablisation: int
+        Args:
+            dispose_frames_for_stablisation (int, optional): Number of disposing frames. Defaults to 30.
         """
         for _ in range(dispose_frames_for_stablisation):
             _ = self.read()
@@ -351,6 +367,11 @@ class RealsenseCapture(metaclass=SingleInstanceMetaClass):
         return intrinsics
 
     def get_depth_scale(self) -> float:
+        """Get depth-scale of the connected device
+
+        Returns:
+            float: Depth-scale
+        """
         # Getting the depth sensor's depth scale (see rs-align example for explanation)
         depth_sensor = self._enabled_device.pipeline_profile.get_device().first_depth_sensor()
         depth_scale = depth_sensor.get_depth_scale()
@@ -372,13 +393,14 @@ class RealsenseCapture(metaclass=SingleInstanceMetaClass):
         ).get_extrinsics_to(color_frame.get_profile())
         return extrinsics
 
-    def get_depth_frame(self, depth_filter=None):
+    def get_depth_frame(self, depth_filter: object = None):
         """Get depth frame
 
-        :param depth_filter: Function to filter depth frame, defaults to None
-        :type depth_filter: object, optional
-        :return: Depth frame after filtered
-        :rtype: rs.depth_frame
+        Args:
+            depth_filter (object, optional): Function to filter depth frame. Defaults to None.
+
+        Returns:
+            rs.depth_frame: Depth frame after filtered.
         """
         if self._frames is None:
             return None
@@ -392,12 +414,12 @@ class RealsenseCapture(metaclass=SingleInstanceMetaClass):
                                 depth_filter=None):
         """Get data according to type
 
-        :param data_type: Expected type of data, defaults to DataType.FRAMES
-        :type data_type: DataType, optional
-        :param depth_filter: Function to filter depth frame, defaults to None
-        :type depth_filter: object, optional
-        :return: Data
-        :rtype: frame or array
+        Args:
+            data_type (DataType, optional): Expected type of data. Defaults to DataType.FRAMES.
+            depth_filter ([type], optional): Function to filter depth frame. Defaults to None.
+
+        Returns:
+            rs.frame|ndarray|Tuple(ndarray): Data
         """
         if self._frames is None:
             return None
@@ -417,6 +439,43 @@ class RealsenseCapture(metaclass=SingleInstanceMetaClass):
             depth_image = np.asarray(self.get_depth_frame(depth_filter)
                                      .get_data())
             return (color_image, depth_image)
+
+    def get_device_id_from_serial(self, serial: str) -> int:
+        """Get device Id from desired serial-number
+
+        Args:
+            serial (str): Serial-number of Realsense device.
+
+        Returns:
+            int: Id of device corresponding to serial-number.
+                 If device not found, return -1
+        """
+        assert self._available_devices > 0, "No device found."
+
+        for i, device_info in self._available_devices:
+            if serial in device_info:
+                return i
+
+        print(f"Device serial {serial} not found")
+        return -1
+
+    def get_device_info_from_id(self, id: int = 0) -> Tuple[str, str]:
+        """Get device information from desired Id
+
+        Args:
+            id (int, optional): Desired Id. Defaults to 0.
+
+        Returns:
+            Tuple[str, str]: Serial-number and Product-line
+        """
+        assert len(self._available_devices) > 0, "No device found."
+
+        if id < 0 or id > len(self._available_devices):
+            print("Device id is out of available range.")
+            return None, None
+        else:
+            return self._available_devices[id]
+
 # ---------------------------------------------------------------------------- #
 
 
@@ -426,9 +485,15 @@ class Observation(Enum):
     DEPTH = 2
 
 
+def to_pick_out(arrays, conditions):
+    assert isinstance(arrays, tuple), 'Not be tuple of arrays'
+    return [array[conditions] for array in arrays]
+
+
 if __name__ == '__main__':
     # Initialize capture
     realsense_capture = RealsenseCapture(
+        id=0,
         depth_size=(640, 480),
         color_size=(960, 540),
         fps=30)  # L515
@@ -468,19 +533,18 @@ if __name__ == '__main__':
 
     # depth_image = realsense_capture.get_data_according_type(
     #     DataType.DEPTH_IMAGE)
-    x, y, z = convert_depth_frame_to_pointcloud(
+    x, y, z = convert_depth_frame_to_points(
         depth_image, intrinsics)
-    points = np.column_stack((x, y, z))
-    r, g, b = color_image[:, :, 0].flatten(
-    ), color_image[:, :, 1].flatten(), color_image[:, :, 2].flatten()
-    colors = np.column_stack((r, g, b)) / 255.
+    r = color_image[:, :, 0].flatten()
+    g = color_image[:, :, 1].flatten()
+    b = color_image[:, :, 2].flatten()
 
-    r = r[np.nonzero(z)]
-    g = g[np.nonzero(z)]
-    b = b[np.nonzero(z)]
-    x = x[np.nonzero(z)]
-    y = y[np.nonzero(z)]
-    z = z[np.nonzero(z)]
+    r, g, b, x, y, z = to_pick_out(
+        arrays=(r, g, b, x, y, z),
+        conditions=np.nonzero(z)[0])
+
+    points = np.column_stack((x, y, z))
+    colors = np.column_stack((r, g, b)) / 255.
 
     import open3d as o3d
     pcd = o3d.geometry.PointCloud()
